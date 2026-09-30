@@ -1,0 +1,229 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg: #eeedeb;
+  --card: #ffffff;
+  --ink: #141210;
+  --mut: #7a7570;
+  --line: #e3e0dc;
+  --cof: #6f4e37;
+  --cofs: #efe6dd;
+  --btn: #141210;
+  --btni: #ffffff;
+  --dock: #141210;
+  --dockt: #b9b3ac;
+  --docka: #ffffff;
+  --dockai: #141210;
+}
+
+:root[data-theme='dark'],
+.dark {
+  --bg: #0c0b0a;
+  --card: #161412;
+  --ink: #f3efea;
+  --mut: #9a938b;
+  --line: #2a2622;
+  --cof: #b08968;
+  --cofs: #2a211a;
+  --btn: #f3efea;
+  --btni: #141210;
+  --dock: #1d1a17;
+  --dockt: #9a938b;
+  --docka: #f3efea;
+  --dockai: #141210;
+}
+
+@layer base {
+  body {
+    background-color: var(--bg);
+    color: var(--ink);
+    font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    min-height: 100vh;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    transition: background-color 0.2s ease, color 0.2s ease;
+  }
+}
+
+/* Glass Card & UI Utilities from page-metrics-app-v3 */
+.app-card {
+  background-color: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  transition: all 0.2s ease;
+}
+
+.app-btn {
+  background-color: var(--btn);
+  color: var(--btni);
+  height: 48px;
+  padding: 0 22px;
+  border-radius: 9999px;
+  font-weight: 600;
+  font-size: 14px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+  transition: all 0.15s ease;
+}
+
+.app-btn:hover {
+  opacity: 0.9;
+}
+
+.app-btn:active {
+  transform: scale(0.98);
+}
+
+.app-btn.ghost {
+  background-color: transparent;
+  color: var(--ink);
+  border: 1px solid var(--line);
+}
+
+.app-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Icon Buttons */
+.icon-btn {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  border: 1px solid var(--line);
+  background-color: var(--card);
+  display: grid;
+  place-items: center;
+  color: var(--ink);
+  transition: all 0.15s ease;
+}
+
+.icon-btn:hover {
+  border-color: var(--cof);
+}
+
+.icon-btn:active {
+  transform: scale(0.95);
+}
+
+/* Sort Chip Button */
+.chip-btn {
+  height: 44px;
+  padding: 0 16px;
+  border-radius: 9999px;
+  border: 1px solid var(--line);
+  background-color: var(--card);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--mut);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+  transition: all 0.15s ease;
+}
+
+.chip-btn[aria-pressed="true"] {
+  background-color: var(--cof);
+  border-color: var(--cof);
+  color: #ffffff;
+}
+
+/* Segmented View Control */
+.segmented-control {
+  display: flex;
+  border: 1px solid var(--line);
+  border-radius: 9999px;
+  padding: 3px;
+  background-color: var(--card);
+}
+
+.segmented-control button {
+  height: 38px;
+  padding: 0 14px;
+  border-radius: 9999px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--mut);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 0.15s ease;
+}
+
+.segmented-control button[aria-pressed="true"] {
+  background-color: var(--btn);
+  color: var(--btni);
+}
+
+/* Bottom Floating Dock */
+.dock-nav {
+  position: fixed;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: max(16px, env(safe-area-inset-bottom));
+  background-color: var(--dock);
+  border-radius: 9999px;
+  padding: 7px;
+  display: flex;
+  gap: 6px;
+  z-index: 50;
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.28);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.dock-nav button {
+  height: 52px;
+  min-width: 56px;
+  padding: 0 18px;
+  border-radius: 9999px;
+  color: var(--dockt);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-weight: 700;
+  font-size: 14px;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.dock-nav button[aria-current="page"] {
+  background-color: var(--docka);
+  color: var(--dockai);
+  padding: 0 22px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.dock-nav button.plus-btn:not([aria-current]) {
+  background-color: var(--cof);
+  color: #ffffff;
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background-color: var(--line);
+  border-radius: 9999px;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
