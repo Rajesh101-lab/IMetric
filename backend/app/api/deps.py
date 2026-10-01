@@ -1,4 +1,5 @@
 from typing import Optional
+from urllib.parse import urlsplit
 from fastapi import Request, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
@@ -79,11 +80,36 @@ def verify_csrf(request: Request) -> None:
     # Origin / Referer check
     origin = request.headers.get("origin") or request.headers.get("referer")
     if origin:
-        # Strip path from referer if present
-        origin_base = origin.split("/")[0] + "//" + origin.split("/")[2] if "://" in origin else origin
-        allowed = any(origin_base.rstrip("/").lower() == allowed_origin.rstrip("/").lower() for allowed_origin in settings.CORS_ORIGINS)
-        if not allowed:
+        try:
+            origin_url = urlsplit(origin)
+            origin_base = f"{origin_url.scheme}://{origin_url.netloc}".lower()
+        except ValueError:
+            origin_base = ""
+
+        request_origin = f"{request.url.scheme}://{request.url.netloc}".lower()
+        configured_origins = set()
+        for allowed_origin in settings.CORS_ORIGINS:
+            allowed_url = urlsplit(allowed_origin)
+            if allowed_url.scheme and allowed_url.netloc:
+                configured_origins.add(f"{allowed_url.scheme}://{allowed_url.netloc}".lower())
+
+        if origin_base not in configured_origins and origin_base != request_origin:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail={"code": "CSRF_ORIGIN_FORBIDDEN", "message": "Untrusted request origin."}
             )
+
+
+async def get_registration_admin(
+    current_user: User = Depends(get_current_user),
+) -> User:
+    configured_admin = settings.INITIAL_USER.strip().lower()
+    if not configured_admin or current_user.username != configured_admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "code": "ADMIN_REQUIRED",
+                "message": "Only the configured workspace owner can review registration requests.",
+            },
+        )
+    return current_user

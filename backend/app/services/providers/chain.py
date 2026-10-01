@@ -4,7 +4,7 @@ import time
 from datetime import datetime, timezone
 from typing import Optional, Dict, Any
 from uuid import UUID
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -15,11 +15,72 @@ from app.services.providers.base import RawPageData
 from app.services.providers.serpapi import SerpApiProvider
 
 logger = logging.getLogger("app.services.providers.chain")
+_BACKUP_QUOTA_LOCK_ID = 0x4241434B555051
+_BACKUP_QUOTA_LOCK = asyncio.Lock()
 
 
 class ProviderUsageTracker:
     @staticmethod
-    async def record_usage(agency_id: UUID, provider_name: str, ok: bool):
+    async def reserve_call(agency_id: UUID, provider_name: str) -> bool:
+        day_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        async with _BACKUP_QUOTA_LOCK:
+            async with AsyncSessionLocal() as session:
+                try:
+                    async with session.begin():
+                        if session.bind and session.bind.dialect.name == "postgresql":
+                            await session.execute(
+                                text("SELECT pg_advisory_xact_lock(:lock_id)"),
+                                {"lock_id": _BACKUP_QUOTA_LOCK_ID},
+                            )
+
+                        agency_result = await session.execute(
+                            select(func.coalesce(func.sum(ProviderUsage.calls), 0)).where(
+                                ProviderUsage.day_date == day_str,
+                                ProviderUsage.provider_name == provider_name,
+                                ProviderUsage.agency_id == agency_id,
+                            )
+                        )
+                        agency_calls = int(agency_result.scalar_one())
+                        global_result = await session.execute(
+                            select(func.coalesce(func.sum(ProviderUsage.calls), 0)).where(
+                                ProviderUsage.day_date == day_str,
+                                ProviderUsage.provider_name == provider_name,
+                            )
+                        )
+                        global_calls = int(global_result.scalar_one())
+
+                        if agency_calls >= settings.BACKUP_PER_AGENCY_DAILY_LIMIT:
+                            return False
+                        if global_calls >= settings.BACKUP_DAILY_LIMIT:
+                            return False
+
+                        usage_result = await session.execute(
+                            select(ProviderUsage)
+                            .where(
+                                ProviderUsage.day_date == day_str,
+                                ProviderUsage.provider_name == provider_name,
+                                ProviderUsage.agency_id == agency_id,
+                            )
+                            .with_for_update()
+                        )
+                        usage = usage_result.scalar_one_or_none()
+                        if usage is None:
+                            session.add(ProviderUsage(
+                                day_date=day_str,
+                                provider_name=provider_name,
+                                agency_id=agency_id,
+                                calls=1,
+                                failures=0,
+                            ))
+                        else:
+                            usage.calls += 1
+                    return True
+                except Exception:
+                    logger.exception("Could not reserve provider quota; rejecting backup call")
+                    return False
+
+    @staticmethod
+    async def record_failure(agency_id: UUID, provider_name: str):
         day_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         async with AsyncSessionLocal() as session:
             try:
@@ -30,62 +91,11 @@ class ProviderUsageTracker:
                 )
                 res = await session.execute(stmt)
                 usage = res.scalar_one_or_none()
-
                 if usage:
-                    usage.calls += 1
-                    if not ok:
-                        usage.failures += 1
-                else:
-                    usage = ProviderUsage(
-                        day_date=day_str,
-                        provider_name=provider_name,
-                        agency_id=agency_id,
-                        calls=1,
-                        failures=0 if ok else 1
-                    )
-                    session.add(usage)
-
+                    usage.failures += 1
                 await session.commit()
-            except Exception as e:
-                logger.warning(f"Error recording provider usage: {e}")
-
-    @staticmethod
-    async def is_within_limits(agency_id: UUID, provider_name: str) -> bool:
-        day_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-        async with AsyncSessionLocal() as session:
-            try:
-                # Agency daily limit
-                stmt_agency = select(ProviderUsage.calls).where(
-                    ProviderUsage.day_date == day_str,
-                    ProviderUsage.provider_name == provider_name,
-                    ProviderUsage.agency_id == agency_id
-                )
-                res_agency = await session.execute(stmt_agency)
-                agency_calls = res_agency.scalar_one_or_none() or 0
-
-                if agency_calls >= settings.BACKUP_PER_AGENCY_DAILY_LIMIT:
-                    logger.warning(f"Agency {agency_id} exceeded daily backup limit ({agency_calls}/{settings.BACKUP_PER_AGENCY_DAILY_LIMIT}).")
-                    return False
-
-                # Total global daily limit
-                stmt_total = select(ProviderUsage.calls).where(
-                    ProviderUsage.day_date == day_str,
-                    ProviderUsage.provider_name == provider_name
-                )
-                res_total = await session.execute(stmt_total)
-                total_calls = sum(res_total.scalars().all())
-
-                if total_calls >= settings.BACKUP_DAILY_LIMIT:
-                    logger.warning(f"Global daily backup limit exceeded ({total_calls}/{settings.BACKUP_DAILY_LIMIT}).")
-                    return False
-
-                if total_calls >= settings.BACKUP_DAILY_LIMIT * 0.8:
-                    logger.warning(f"Global daily backup limit reached 80% ({total_calls}/{settings.BACKUP_DAILY_LIMIT}).")
-
-                return True
-            except Exception as e:
-                logger.warning(f"Error checking provider limits: {e}")
-                return True
+            except Exception:
+                logger.exception("Could not record provider failure")
 
 
 class ProviderChain:
@@ -126,7 +136,7 @@ class ProviderChain:
                 and primary_err.kind.value in fallback_kinds
                 and primary_err.kind != Kind.INVALID
                 and not self.backup.is_circuit_open
-                and await ProviderUsageTracker.is_within_limits(agency_id, self.backup.name)
+                and await ProviderUsageTracker.reserve_call(agency_id, self.backup.name)
             )
 
             if not eligible:
@@ -145,12 +155,15 @@ class ProviderChain:
                 return backup_data
 
             except IGError as backup_err:
-                await ProviderUsageTracker.record_usage(agency_id, self.backup.name, ok=False)
+                await ProviderUsageTracker.record_failure(agency_id, self.backup.name)
                 final_err = self._pick_error(primary_err, backup_err)
 
                 if final_err.kind == Kind.NOT_FOUND:
                     NEGATIVE_CACHE[clean_user] = time.monotonic() + settings.NEGATIVE_CACHE_TTL_SECONDS
                 raise final_err
+            except Exception:
+                await ProviderUsageTracker.record_failure(agency_id, self.backup.name)
+                raise primary_err
 
     @staticmethod
     def _pick_error(primary: IGError, backup: IGError) -> IGError:

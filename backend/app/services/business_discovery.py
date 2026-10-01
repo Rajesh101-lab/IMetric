@@ -1,5 +1,4 @@
 import asyncio
-import hashlib
 import logging
 import random
 import re
@@ -70,7 +69,7 @@ def classify(status_code: int, body: dict, username: str) -> IGError:
     if code in (200, 10, 3) or "not an instagram business" in msg_raw or "permissions" in msg_raw:
         return IGError(
             kind=Kind.PERMISSION,
-            message="Instagram API permission restricted (Dev Mode). Note: Business Discovery for external handles requires Meta App Review. Query your own connected Instagram account directly.",
+            message="Instagram API permission restricted. Please ensure your token includes instagram_manage_insights and pages_read_engagement permissions.",
             http_status=503,
             retryable=False,
             **meta
@@ -118,49 +117,15 @@ IN_FLIGHT_LOCKS: Dict[str, asyncio.Lock] = {}
 IN_FLIGHT_GLOBAL_LOCK = asyncio.Lock()
 
 
-def _generate_deterministic_mock(username: str) -> dict:
-    seed_str = username.lower().strip()
-    h = int(hashlib.md5(seed_str.encode()).hexdigest(), 16)
-    rng = random.Random(h)
-
-    if seed_str in ("notfound", "private_account", "nonexistent"):
-        raise IGError(
-            kind=Kind.NOT_FOUND,
-            message=f"We couldn't find @{username}, or it isn't a Business or Creator account.",
-            http_status=404,
-            retryable=False
-        )
-
-    followers = rng.randint(5000, 850000)
-    media_items = []
-    for i in range(15):
-        base_views = rng.randint(int(followers * 0.15), int(followers * 2.8))
-        like_ratio = rng.uniform(0.03, 0.14)
-        likes = int(base_views * like_ratio)
-        media_items.append({
-            "media_product_type": "REELS",
-            "play_count": base_views,
-            "like_count": likes,
-            "timestamp": f"2026-09-{30-i:02d}T12:00:00Z"
-        })
-
-    return {
-        "followers_count": followers,
-        "media": {
-            "data": media_items
-        }
-    }
-
-
 class InstagramClient:
     def __init__(self):
         self._sem = asyncio.Semaphore(settings.IG_CONCURRENCY_LIMIT)
         self._http = httpx.AsyncClient(
             timeout=httpx.Timeout(
-                connect=settings.IG_CONNECT_TIMEOUT,
-                read=settings.IG_READ_TIMEOUT,
-                write=settings.IG_WRITE_TIMEOUT,
-                pool=settings.IG_POOL_TIMEOUT,
+                connect=10.0,
+                read=30.0,
+                write=10.0,
+                pool=10.0,
             )
         )
 
@@ -173,66 +138,39 @@ class InstagramClient:
         version = settings.GRAPH_API_VERSION
 
         if not token or not ig_id:
-            return _generate_deterministic_mock(username)
+            raise IGError(
+                kind=Kind.AUTH,
+                message="Official Instagram Graph API credentials are not configured.",
+                http_status=503,
+                retryable=False,
+            )
 
-        # 1. Try Direct Account Query (works 100% in Dev Mode for connected account)
-        try:
-            url_me = f"https://graph.facebook.com/{version}/{ig_id}"
-            params_me = {
-                "fields": "username,followers_count,media_count,media" + (f".after({after_cursor})" if after_cursor else "") + ".limit(50){media_product_type,timestamp,like_count,comments_count,play_count}",
-                "access_token": token
-            }
-            async with self._sem:
-                resp_me = await self._http.get(url_me, params=params_me)
-
-            if resp_me.status_code == 200:
-                me_data = resp_me.json()
-                fetched_username = me_data.get("username", "").lower()
-                # If querying our own connected account or if fallback allowed, return direct data
-                if not fetched_username or fetched_username == username or len(username) == 0:
-                    return {
-                        "followers_count": me_data.get("followers_count", 0),
-                        "media": me_data.get("media", {"data": []})
-                    }
-        except Exception as e:
-            logger.debug(f"Direct account query skipped: {e}")
-
-        # 2. Try Business Discovery API for public accounts
+        # Try Business Discovery API for public accounts
         url = f"https://graph.facebook.com/{version}/{ig_id}"
-        media_field = "media" + (f".after({after_cursor})" if after_cursor else "") + \
-                      ".limit(50){media_product_type,timestamp,like_count,comments_count,play_count}"
+        media_field = "media.limit(25){media_product_type,timestamp,like_count,comments_count,play_count}"
         fields = f"business_discovery.username({username}){{followers_count,media_count,{media_field}}}"
 
         try:
             async with self._sem:
                 resp = await self._http.get(url, params={"fields": fields, "access_token": token})
 
-            if resp.status_code == 200:
+            try:
                 body = resp.json()
-                if "business_discovery" in body:
-                    return body["business_discovery"]
+            except Exception:
+                body = {}
 
-            body = resp.json() if resp.status_code in (400, 404, 500) else {}
-            err_obj = classify(resp.status_code, body, username)
+            if resp.status_code == 200:
+                business_discovery = body.get("business_discovery") if isinstance(body, dict) else None
+                if isinstance(business_discovery, dict):
+                    return business_discovery
+                raise IGError(
+                    kind=Kind.PERMISSION,
+                    message="Meta returned no Business Discovery data. Check the Instagram account link and app permissions.",
+                    http_status=502,
+                    retryable=False,
+                )
 
-            # If error #10 (Dev mode restriction), return direct account data as professional real API fallback instead of failing
-            if err_obj.code == 10:
-                logger.warning(f"Meta Graph API Dev Mode restriction (Error #10) for @{username}. Serving real data from connected account.")
-                url_me = f"https://graph.facebook.com/{version}/{ig_id}"
-                params_me = {
-                    "fields": "followers_count,media.limit(50){media_product_type,timestamp,like_count,comments_count,play_count}",
-                    "access_token": token
-                }
-                async with self._sem:
-                    resp_me = await self._http.get(url_me, params=params_me)
-                if resp_me.status_code == 200:
-                    me_data = resp_me.json()
-                    return {
-                        "followers_count": me_data.get("followers_count", 0),
-                        "media": me_data.get("media", {"data": []})
-                    }
-
-            raise err_obj
+            raise classify(resp.status_code, body if isinstance(body, dict) else {}, username)
 
         except IGError:
             raise
@@ -258,7 +196,7 @@ class InstagramClient:
                 retryable=False
             )
 
-    async def fetch_page_raw(self, username: str, n_reels: int = 12, max_pages: int = 4) -> dict:
+    async def fetch_page_raw(self, username: str, n_reels: int = 12, max_pages: int = 1) -> dict:
         clean_user = username.strip().lower()
         if not USERNAME_RE.fullmatch(clean_user):
             raise IGError(
@@ -284,28 +222,23 @@ class InstagramClient:
 
         async with user_lock:
             try:
-                followers, reels, after_cursor = None, [], None
+                bd = await self._call_with_retries(clean_user, None)
+                followers = bd.get("followers_count", 0)
+                media_page = bd.get("media", {})
+                media_items = media_page.get("data", [])
 
-                for page_idx in range(max_pages):
-                    bd = await self._call_with_retries(clean_user, after_cursor)
-                    followers = bd.get("followers_count", 0)
-                    media_page = bd.get("media", {})
-                    media_items = media_page.get("data", [])
-
-                    for item in media_items:
-                        m_product = item.get("media_product_type")
-                        if m_product == "REELS" or item.get("media_type") in ("VIDEO", "REEL", "CAROUSEL_ALBUM", "IMAGE"):
-                            views = item.get("play_count") or item.get("like_count", 0) * 10 or 100
-                            likes = item.get("like_count", 0) or 0
-                            reels.append({
-                                "views": views,
-                                "likes": likes,
-                                "timestamp": item.get("timestamp", "")
-                            })
-
-                    after_cursor = media_page.get("paging", {}).get("cursors", {}).get("after")
-                    if len(reels) >= n_reels or not after_cursor:
-                        break
+                reels = []
+                for item in media_items:
+                    # Accept all post types (FEED, REELS, CAROUSEL, etc.) as engagement samples
+                    likes = item.get("like_count", 0) or 0
+                    comments = item.get("comments_count", 0) or 0
+                    views = item.get("play_count") or (likes * 12 if likes > 0 else 500)
+                    timestamp = item.get("timestamp", "")
+                    reels.append({
+                        "views": views,
+                        "likes": likes,
+                        "timestamp": timestamp
+                    })
 
                 return {"followers": followers, "reels": reels[:n_reels]}
 
@@ -315,7 +248,7 @@ class InstagramClient:
                 raise
 
     async def _call_with_retries(self, username: str, after_cursor: Optional[str]) -> dict:
-        delays = [0.5, 1.5, 4.0]
+        delays = [0.5, 1.5, 3.0]
         not_found_retried = False
 
         for attempt in range(len(delays) + 1):

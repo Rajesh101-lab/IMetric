@@ -1,18 +1,24 @@
 from datetime import datetime, timezone, timedelta
-from typing import Optional, Tuple
+from typing import List, Optional, Tuple
 from uuid import UUID
+# pyrefly: ignore [missing-import]
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete, update
+from sqlalchemy.exc import IntegrityError
+from fastapi import HTTPException, status
 from app.core.config import settings
 from app.core.logging import logger
 from app.core.security import (
     hash_password,
     verify_password,
+    validate_password_policy,
     dummy_verify_password,
     generate_opaque_token,
     hash_token,
+    normalize_username,
+    validate_username_format,
 )
-from app.db.models import User, Session
+from app.db.models import RegistrationRequest, User, Session
 
 
 def utc_now() -> datetime:
@@ -25,6 +31,119 @@ def ensure_utc(dt: Optional[datetime]) -> Optional[datetime]:
     if dt.tzinfo is None:
         return dt.replace(tzinfo=timezone.utc)
     return dt
+
+
+async def submit_registration_request(
+    db: AsyncSession, username: str, password: str, contact_email: str
+) -> RegistrationRequest:
+    clean_username = normalize_username(username)
+    if not validate_username_format(clean_username):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail={"code": "INVALID_AGENCY_ID", "message": "Agency ID must use letters, numbers, periods, or underscores."},
+        )
+
+    policy_error = validate_password_policy(password, clean_username)
+    if policy_error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail={"code": "WEAK_PASSWORD", "message": policy_error},
+        )
+
+    existing_user = await db.execute(select(User.id).where(User.username == clean_username))
+    if existing_user.scalar_one_or_none() is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"code": "AGENCY_ID_TAKEN", "message": "That Agency ID is already registered."},
+        )
+
+    existing_result = await db.execute(
+        select(RegistrationRequest).where(RegistrationRequest.username == clean_username)
+    )
+    registration_request = existing_result.scalar_one_or_none()
+    if registration_request and registration_request.status == "pending":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"code": "REQUEST_PENDING", "message": "A request for this Agency ID is already awaiting approval."},
+        )
+
+    if registration_request:
+        registration_request.contact_email = contact_email
+        registration_request.password_hash = hash_password(password)
+        registration_request.status = "pending"
+        registration_request.created_at = utc_now()
+        registration_request.reviewed_at = None
+        registration_request.reviewed_by = None
+    else:
+        registration_request = RegistrationRequest(
+            username=clean_username,
+            contact_email=contact_email,
+            password_hash=hash_password(password),
+            status="pending",
+        )
+        db.add(registration_request)
+
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"code": "AGENCY_ID_TAKEN", "message": "That Agency ID is already registered."},
+        )
+    await db.refresh(registration_request)
+    return registration_request
+
+
+async def list_registration_requests(db: AsyncSession) -> List[RegistrationRequest]:
+    result = await db.execute(
+        select(RegistrationRequest)
+        .where(RegistrationRequest.status == "pending")
+        .order_by(RegistrationRequest.created_at.asc())
+    )
+    return list(result.scalars().all())
+
+
+async def review_registration_request(
+    db: AsyncSession, request_id: UUID, admin_id: UUID, approve: bool
+) -> RegistrationRequest:
+    result = await db.execute(
+        select(RegistrationRequest).where(
+            RegistrationRequest.id == request_id,
+            RegistrationRequest.status == "pending",
+        )
+    )
+    registration_request = result.scalar_one_or_none()
+    if registration_request is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"code": "REQUEST_NOT_FOUND", "message": "Pending registration request not found."},
+        )
+
+    password_hash = registration_request.password_hash
+    if approve and not password_hash:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"code": "REQUEST_CREDENTIALS_MISSING", "message": "This request no longer has credentials to activate."},
+        )
+
+    registration_request.status = "approved" if approve else "rejected"
+    registration_request.reviewed_at = utc_now()
+    registration_request.reviewed_by = admin_id
+    registration_request.password_hash = None
+    if approve:
+        db.add(User(username=registration_request.username, password_hash=password_hash, is_active=True))
+
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"code": "AGENCY_ID_TAKEN", "message": "That Agency ID is already registered."},
+        )
+    await db.refresh(registration_request)
+    return registration_request
 
 
 async def create_session(

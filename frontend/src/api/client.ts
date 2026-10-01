@@ -1,4 +1,4 @@
-import { PageItem, User, RefreshAllJob, AppConfig, SortField, SortOrder } from "@/types";
+import { PageItem, PaginatedPages, User, RefreshAllJob, AppConfig, SortField, SortOrder, Campaign, CampaignInput, RegistrationRequest, RegistrationSubmission } from "@/types";
 
 const BASE_URL = "/api/v1";
 
@@ -82,6 +82,14 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ username, password }),
     }),
+  register: (username: string, password: string, contactEmail: string) =>
+    request<RegistrationSubmission>("/auth/register", {
+      method: "POST",
+      body: JSON.stringify({ username, password, contact_email: contactEmail }),
+    }),
+  getRegistrationRequests: () => request<RegistrationRequest[]>("/auth/registration-requests"),
+  reviewRegistrationRequest: (requestId: string, decision: "approve" | "reject") =>
+    request<RegistrationRequest>(`/auth/registration-requests/${requestId}/${decision}`, { method: "POST" }),
   logout: () =>
     request<{ message: string }>("/auth/logout", {
       method: "POST",
@@ -92,8 +100,11 @@ export const api = {
   getConfig: () => request<AppConfig>("/config"),
 
   // Pages
-  getPages: (sort: SortField = "followers", order: SortOrder = "desc") =>
-    request<PageItem[]>(`/pages?sort=${sort}&order=${order}`),
+  getPages: (sort: SortField = "followers", order: SortOrder = "desc", page = 1, search = "", pageSize = 50) => {
+    const params = new URLSearchParams({ sort, order, page: String(page), page_size: String(pageSize) });
+    if (search) params.set("q", search);
+    return request<PaginatedPages>(`/pages?${params.toString()}`);
+  },
   addPage: (username: string) =>
     request<PageItem>("/pages", {
       method: "POST",
@@ -103,10 +114,35 @@ export const api = {
     request<PageItem>(`/pages/${pageId}/refresh`, {
       method: "POST",
     }),
+  removePage: (pageId: string) =>
+    request<{ message: string }>(`/pages/${pageId}`, {
+      method: "DELETE",
+    }),
+  updatePageTags: (pageId: string, tags: string[]) =>
+    request<PageItem>(`/pages/${pageId}/tags`, {
+      method: "PUT",
+      body: JSON.stringify({ tags }),
+    }),
   refreshAllPages: () =>
     request<RefreshAllJob>("/pages/refresh-all", {
       method: "POST",
     }),
   getRefreshAllStatus: (jobId: string) =>
     request<RefreshAllJob>(`/pages/refresh-all/${jobId}`),
+  getCurrentRefreshAll: () => request<RefreshAllJob | null>("/pages/refresh-all/current"),
+
+  // Campaigns
+  getCampaigns: () => request<Campaign[]>("/campaigns"),
+  createCampaign: ({ name, description, page_ids }: CampaignInput) =>
+    request<Campaign>("/campaigns", {
+      method: "POST",
+      body: JSON.stringify({ name, description: description || null, page_ids }),
+    }),
+  updateCampaign: ({ id, name, description, page_ids }: CampaignInput) =>
+    request<Campaign>(`/campaigns/${id}`, {
+      method: "PUT",
+      body: JSON.stringify({ name, description: description || null, page_ids }),
+    }),
+  removeCampaign: (campaignId: string) =>
+    request<{ message: string }>(`/campaigns/${campaignId}`, { method: "DELETE" }),
 };

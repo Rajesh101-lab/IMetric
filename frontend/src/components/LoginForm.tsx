@@ -1,8 +1,9 @@
 import React, { useState } from "react";
 import { Eye, EyeOff, Loader2, Lock, Building2 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { ThemeToggle } from "./ThemeToggle";
+import "@/pages/home.css";
 
 export const LoginForm: React.FC = () => {
   const [agencyId, setAgencyId] = useState("");
@@ -31,126 +32,122 @@ export const LoginForm: React.FC = () => {
 
     try {
       await login({ username: cleanId, password });
-      navigate("/");
+      navigate("/app");
     } catch (err: any) {
       setLocalError(err.message || "Invalid Agency ID or password.");
     }
   };
 
   return (
-    <div className="min-h-screen w-full flex items-center justify-center p-4 relative overflow-hidden bg-[var(--bg)] text-[var(--ink)]">
-      {/* Absolute top right theme toggle */}
-      <div className="absolute top-4 right-4 z-20">
+    <div className="site-shell login-shell">
+      <header className="site-nav login-nav">
+        <Link to="/" className="site-brand" aria-label="IMetric home">
+          <span className="site-mark">I<span>M</span></span>
+          <span>IMetric</span>
+        </Link>
         <ThemeToggle />
-      </div>
+      </header>
 
-      <div className="w-full max-w-md app-card p-8 sm:p-10 relative z-10 my-auto shadow-2xl">
-        <div className="text-center mb-8">
-          <div className="w-14 h-14 mx-auto mb-4 rounded-3xl bg-[var(--cof)] text-white flex items-center justify-center font-extrabold text-2xl shadow-md">
-            M
+      <main className="login-main">
+        <section className="login-intro">
+          <p className="site-eyebrow"><span /> PRIVATE AGENCY WORKSPACE</p>
+          <h1>Every client page.<br />One clear view.</h1>
+          <p>Sign in to review tracked accounts, compare reel performance, and keep your team’s reporting together.</p>
+          <div className="login-points">
+            <span><Building2 aria-hidden="true" /> One workspace for managed pages</span>
+            <span><Lock aria-hidden="true" /> Access reserved for agency accounts</span>
           </div>
-          <h1 className="text-3xl sm:text-4xl font-bold text-[var(--ink)] tracking-tight">
-            Metrics
-          </h1>
-          <p className="text-sm font-medium text-[var(--mut)] mt-2">
-            Sign in to your agency workspace
+        </section>
+
+        <section className="login-form-panel" aria-labelledby="login-heading">
+          <p className="site-eyebrow"><span /> WORKSPACE ACCESS</p>
+          <h2 id="login-heading">Sign in</h2>
+          <p className="login-form-description">Use your agency credentials to continue.</p>
+
+          {isExpired && !localError && (
+            <div className="login-session-message" role="status">
+              Your session expired. Sign in again to continue.
+            </div>
+          )}
+
+          <form onSubmit={handleSubmit} className="space-y-5">
+            <div>
+              <label htmlFor="agency_id" className="block text-xs font-bold uppercase tracking-wider text-[var(--mut)] mb-2">
+                Agency ID
+              </label>
+              <div className="relative">
+                <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[var(--mut)]">
+                  <Building2 className="w-4 h-4" />
+                </span>
+                <input
+                  id="agency_id"
+                  type="text"
+                  value={agencyId}
+                  onChange={(e) => {
+                    setAgencyId(e.target.value);
+                    if (localError) setLocalError(null);
+                  }}
+                  disabled={isLoggingIn}
+                  autoComplete="username"
+                  placeholder="e.g. acme_media"
+                  required
+                  className="login-input pl-10 pr-4"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label htmlFor="current-password" className="block text-xs font-bold uppercase tracking-wider text-[var(--mut)] mb-2">
+                Password
+              </label>
+              <div className="relative">
+                <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[var(--mut)]">
+                  <Lock className="w-4 h-4" />
+                </span>
+                <input
+                  id="current-password"
+                  type={showPassword ? "text" : "password"}
+                  value={password}
+                  onChange={(e) => {
+                    setPassword(e.target.value);
+                    if (localError) setLocalError(null);
+                  }}
+                  disabled={isLoggingIn}
+                  autoComplete="current-password"
+                  placeholder="Enter your password"
+                  required
+                  className="login-input pl-10 pr-11"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  aria-label={showPassword ? "Hide password" : "Show password"}
+                  className="login-password-toggle"
+                >
+                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
+            </div>
+
+            <div aria-live="polite" className="min-h-[20px]">
+              {localError && <p className="text-sm font-semibold text-[var(--cof)]">{localError}</p>}
+            </div>
+
+            <button type="submit" disabled={isLoggingIn} className="app-btn w-full justify-center">
+              {isLoggingIn ? <><Loader2 className="w-4 h-4 animate-spin" /><span>Signing in…</span></> : <span>Sign in</span>}
+            </button>
+          </form>
+          <p className="login-register-link">
+            New to IMetric? <Link to="/register">Create an agency account</Link>
           </p>
-        </div>
+        </section>
+      </main>
 
-        {isExpired && !localError && (
-          <div className="mb-6 p-3 rounded-2xl bg-[var(--cofs)] border border-[var(--line)] text-xs font-semibold text-[var(--cof)] text-center">
-            Session expired, please sign in again
-          </div>
-        )}
-
-        <form onSubmit={handleSubmit} className="space-y-5">
-          {/* Agency ID Input */}
-          <div>
-            <label htmlFor="agency_id" className="block text-xs font-bold uppercase tracking-wider text-[var(--mut)] mb-2">
-              Agency ID
-            </label>
-            <div className="relative">
-              <span className="absolute left-4 top-1/2 -translate-y-1/2 text-[var(--mut)]">
-                <Building2 className="w-5 h-5" />
-              </span>
-              <input
-                id="agency_id"
-                type="text"
-                value={agencyId}
-                onChange={(e) => {
-                  setAgencyId(e.target.value);
-                  if (localError) setLocalError(null);
-                }}
-                disabled={isLoggingIn}
-                autoComplete="username"
-                placeholder="e.g. acme_media"
-                required
-                className="w-full pl-11 pr-4 py-3.5 rounded-full bg-[var(--bg)] border border-[var(--line)] text-[var(--ink)] placeholder-[var(--mut)] focus:outline-none focus:border-[var(--cof)] text-base transition-all duration-200 disabled:opacity-60"
-              />
-            </div>
-          </div>
-
-          {/* Password Input */}
-          <div>
-            <label htmlFor="current-password" className="block text-xs font-bold uppercase tracking-wider text-[var(--mut)] mb-2">
-              Password
-            </label>
-            <div className="relative">
-              <span className="absolute left-4 top-1/2 -translate-y-1/2 text-[var(--mut)]">
-                <Lock className="w-5 h-5" />
-              </span>
-              <input
-                id="current-password"
-                type={showPassword ? "text" : "password"}
-                value={password}
-                onChange={(e) => {
-                  setPassword(e.target.value);
-                  if (localError) setLocalError(null);
-                }}
-                disabled={isLoggingIn}
-                autoComplete="current-password"
-                placeholder="••••••••••••"
-                required
-                className="w-full pl-11 pr-12 py-3.5 rounded-full bg-[var(--bg)] border border-[var(--line)] text-[var(--ink)] placeholder-[var(--mut)] focus:outline-none focus:border-[var(--cof)] text-base transition-all duration-200 disabled:opacity-60"
-              />
-              <button
-                type="button"
-                onClick={() => setShowPassword(!showPassword)}
-                tabIndex={-1}
-                aria-label={showPassword ? "Hide password" : "Show password"}
-                className="absolute right-4 top-1/2 -translate-y-1/2 text-[var(--mut)] hover:text-[var(--ink)] transition-colors p-1"
-              >
-                {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
-              </button>
-            </div>
-          </div>
-
-          {/* Error display */}
-          <div aria-live="polite" className="min-h-[20px]">
-            {localError && (
-              <p className="text-sm font-semibold text-[var(--cof)] text-center">
-                {localError}
-              </p>
-            )}
-          </div>
-
-          {/* Submit Button */}
-          <button
-            type="submit"
-            disabled={isLoggingIn}
-            className="app-btn w-full justify-center py-4 text-base"
-          >
-            {isLoggingIn ? (
-              <>
-                <Loader2 className="w-5 h-5 animate-spin" />
-                <span>Signing in…</span>
-              </>
-            ) : (
-              <span>Sign in</span>
-            )}
-          </button>
-        </form>
-      </div>
+      <footer className="site-footer login-footer">
+        <span>IMetric · Agency workspace</span>
+        <span className="site-legal-links"><Link to="/privacy">Privacy</Link><Link to="/terms">Terms</Link></span>
+        <Link to="/">Back to website</Link>
+      </footer>
     </div>
   );
 };

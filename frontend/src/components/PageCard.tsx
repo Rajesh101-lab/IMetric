@@ -1,6 +1,9 @@
-import React from "react";
-import { RefreshCw, AlertCircle, Loader2 } from "lucide-react";
+import React, { useState } from "react";
+import { RefreshCw, AlertCircle, Loader2, Trash2 } from "lucide-react";
 import { PageItem } from "@/types";
+import { useRemovePage } from "@/hooks/usePages";
+import { ConfirmDialog } from "./ConfirmDialog";
+import { PageTagsEditor } from "./PageTagsEditor";
 import {
   formatCompactNumber,
   formatPercent,
@@ -16,6 +19,24 @@ interface PageCardProps {
 
 export const PageCard: React.FC<PageCardProps> = ({ page, onRefresh, isRefreshing }) => {
   const initial = page.username.charAt(0).toUpperCase();
+  const removeMutation = useRemovePage();
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  const handleDelete = () => {
+    setDeleteError(null);
+    setConfirmOpen(true);
+  };
+
+  const handleConfirmDelete = async () => {
+    setDeleteError(null);
+    try {
+      await removeMutation.mutateAsync(page.id);
+      setConfirmOpen(false);
+    } catch (err) {
+      setDeleteError(err instanceof Error ? err.message : "Could not remove this page.");
+    }
+  };
 
   if (page.status === "pending") {
     return (
@@ -31,6 +52,27 @@ export const PageCard: React.FC<PageCardProps> = ({ page, onRefresh, isRefreshin
           <Loader2 className="w-4 h-4 animate-spin mr-2" />
           Fetching metrics in background…
         </div>
+        <div className="flex justify-end">
+          <button
+            type="button"
+            onClick={handleDelete}
+            disabled={removeMutation.isPending}
+            aria-label={`Remove @${page.username}`}
+            title="Remove page"
+            className="w-9 h-9 rounded-full border border-[var(--line)] flex items-center justify-center text-[var(--mut)] hover:text-[var(--cof)] hover:border-[var(--cof)] transition-all active:scale-95 disabled:opacity-50"
+          >
+            <Trash2 className="w-4 h-4" />
+          </button>
+        </div>
+        <ConfirmDialog
+          open={confirmOpen}
+          title="Remove page"
+          message={`Remove @${page.username} from your tracked pages?`}
+          busy={removeMutation.isPending}
+          error={deleteError}
+          onConfirm={handleConfirmDelete}
+          onCancel={() => setConfirmOpen(false)}
+        />
       </article>
     );
   }
@@ -52,10 +94,10 @@ export const PageCard: React.FC<PageCardProps> = ({ page, onRefresh, isRefreshin
             </span>
             {page.source === "backup" && (
               <span
-                className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-[var(--cofs)] text-[var(--cof)] border border-[var(--line)]"
-                title="Fetched from a secondary source. Numbers may differ slightly from Instagram."
+                className="text-[10px] font-bold px-2 py-0.5 rounded-sm bg-[var(--cofs)] text-[var(--cof)] border border-[var(--line)]"
+                title={`Meta fetch failed (${page.fallback_reason || "unknown reason"}); this result came from the configured secondary source.`}
               >
-                Backup source
+                Backup · {page.fallback_reason || "Meta error"}
               </span>
             )}
           </div>
@@ -72,6 +114,8 @@ export const PageCard: React.FC<PageCardProps> = ({ page, onRefresh, isRefreshin
           </div>
         </div>
       </div>
+
+      <PageTagsEditor page={page} />
 
       {/* Trio metrics */}
       <div className="grid grid-cols-3 my-4 py-3 border-y border-[var(--line)]">
@@ -162,16 +206,40 @@ export const PageCard: React.FC<PageCardProps> = ({ page, onRefresh, isRefreshin
           {page.status === "failed" ? "Failed" : `Updated ${formatRelativeTime(page.last_refreshed_at)}`}
         </span>
 
-        <button
-          type="button"
-          onClick={() => onRefresh(page.id)}
-          disabled={isRefreshing}
-          aria-label={`Refresh @${page.username}`}
-          className="w-9 h-9 rounded-full border border-[var(--line)] flex items-center justify-center text-[var(--ink)] hover:border-[var(--cof)] transition-all active:scale-95 disabled:opacity-50"
-        >
-          <RefreshCw className={`w-4 h-4 ${isRefreshing ? "animate-spin text-[var(--cof)]" : ""}`} />
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={handleDelete}
+            disabled={removeMutation.isPending}
+            aria-label={`Remove @${page.username}`}
+            title="Remove page"
+            className="w-9 h-9 rounded-full border border-[var(--line)] flex items-center justify-center text-[var(--mut)] hover:text-[var(--cof)] hover:border-[var(--cof)] transition-all active:scale-95 disabled:opacity-50"
+          >
+            <Trash2 className="w-4 h-4" />
+          </button>
+
+          <button
+            type="button"
+            onClick={() => onRefresh(page.id)}
+            disabled={isRefreshing}
+            aria-label={`Refresh @${page.username}`}
+            title="Refresh metrics"
+            className="w-9 h-9 rounded-full border border-[var(--line)] flex items-center justify-center text-[var(--ink)] hover:border-[var(--cof)] transition-all active:scale-95 disabled:opacity-50"
+          >
+            <RefreshCw className={`w-4 h-4 ${isRefreshing ? "animate-spin text-[var(--cof)]" : ""}`} />
+          </button>
+        </div>
       </div>
+
+      <ConfirmDialog
+        open={confirmOpen}
+        title="Remove page"
+        message={`Remove @${page.username} from your tracked pages?`}
+        busy={removeMutation.isPending}
+        error={deleteError}
+        onConfirm={handleConfirmDelete}
+        onCancel={() => setConfirmOpen(false)}
+      />
     </article>
   );
 };

@@ -1,4 +1,6 @@
 import pytest
+from pydantic import ValidationError
+from app.core.config import Settings
 from app.core.security import normalize_username, validate_username_format, validate_password_policy
 
 
@@ -40,3 +42,39 @@ def test_password_policy():
     assert validate_password_policy("myagency12345", "myagency") is not None  # contains agency username
     assert validate_password_policy("password12345", "myagency") is not None  # common password
     assert validate_password_policy("ValidSecurePass123!", "myagency") is None
+
+
+def test_production_settings_require_postgres_secrets_and_https_origins():
+    base = {
+        "ENV": "production",
+        "DATABASE_URL": "postgresql+asyncpg://app:secret@db:5432/app",
+        "INITIAL_USER": "workspace_owner",
+        "INITIAL_PASSWORD": "DifferentStrongPassword2026!",
+        "META_ACCESS_TOKEN": "meta-token",
+        "IG_BUSINESS_ACCOUNT_ID": "12345",
+        "CORS_ORIGINS": ["https://app.example.com"],
+    }
+    assert Settings(**base).ENV == "production"
+
+    with pytest.raises(ValidationError, match="Production requires PostgreSQL"):
+        Settings(**{**base, "DATABASE_URL": "sqlite+aiosqlite:///local.db"})
+
+    with pytest.raises(ValidationError, match="HTTPS origins"):
+        Settings(**{**base, "CORS_ORIGINS": ["http://app.example.com"]})
+
+
+def test_development_settings_allow_local_sqlite():
+    settings = Settings(ENV="development", DATABASE_URL="sqlite+aiosqlite:///local.db")
+    assert settings.DATABASE_URL == "sqlite+aiosqlite:///local.db"
+
+
+def test_heroku_postgres_url_uses_asyncpg_and_ssl():
+    settings = Settings(DATABASE_URL="postgres://app:secret@db.example.com:5432/app?sslmode=require")
+    assert settings.DATABASE_URL.startswith("postgresql+asyncpg://")
+    assert "ssl=require" in settings.DATABASE_URL
+
+
+def test_heroku_dyno_requires_postgres_tls(monkeypatch):
+    monkeypatch.setenv("DYNO", "web.1")
+    settings = Settings(DATABASE_URL="postgres://app:secret@db.example.com:5432/app")
+    assert "ssl=require" in settings.DATABASE_URL

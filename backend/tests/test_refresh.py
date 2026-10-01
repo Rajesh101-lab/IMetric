@@ -1,10 +1,12 @@
 import pytest
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from httpx import AsyncClient
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.db.models import User, Page
+from app.core.config import settings
+from app.db.models import User, Page, PageSnapshot, RefreshJob
 from app.core.security import hash_password
+from app.services.refresh_jobs import prune_refresh_history
 
 
 @pytest.mark.asyncio
@@ -67,8 +69,53 @@ async def test_refresh_all_job(client: AsyncClient, db_session: AsyncSession):
     assert ref_all.status_code == 202
     job_id = ref_all.json()["job_id"]
     assert ref_all.json()["total"] == 2
+    assert ref_all.json()["status"] == "queued"
+
+    current_res = await client.get("/api/v1/pages/refresh-all/current")
+    assert current_res.status_code == 200
+    assert current_res.json()["job_id"] == job_id
+
+    duplicate = await client.post("/api/v1/pages/refresh-all", headers={"X-CSRF-Token": csrf_token})
+    assert duplicate.status_code == 409
+    assert duplicate.json()["error"]["code"] == "JOB_IN_PROGRESS"
 
     # Poll status
     status_res = await client.get(f"/api/v1/pages/refresh-all/{job_id}")
     assert status_res.status_code == 200
     assert status_res.json()["job_id"] == job_id
+
+
+@pytest.mark.asyncio
+async def test_prune_refresh_history_bounds_snapshots_and_completed_jobs(db_session: AsyncSession, monkeypatch):
+    monkeypatch.setattr(settings, "PAGE_SNAPSHOT_RETENTION_DAYS", 365)
+    monkeypatch.setattr(settings, "PAGE_SNAPSHOT_MAX_PER_PAGE", 2)
+    monkeypatch.setattr(settings, "REFRESH_JOB_RETENTION_DAYS", 30)
+    user = User(username="agency_retention", password_hash=hash_password("AgencyPass12345!"), is_active=True)
+    db_session.add(user)
+    await db_session.flush()
+    page = Page(user_id=user.id, username="retentionpage")
+    db_session.add(page)
+    await db_session.flush()
+
+    now = datetime.now(timezone.utc)
+    db_session.add_all([
+        PageSnapshot(page_id=page.id, fetched_at=now - timedelta(days=400)),
+        PageSnapshot(page_id=page.id, fetched_at=now - timedelta(days=3)),
+        PageSnapshot(page_id=page.id, fetched_at=now - timedelta(days=2)),
+        PageSnapshot(page_id=page.id, fetched_at=now - timedelta(days=1)),
+    ])
+    db_session.add(RefreshJob(
+        user_id=user.id,
+        status="completed",
+        total=1,
+        done=1,
+        finished_at=now - timedelta(days=31),
+    ))
+    await db_session.commit()
+
+    await prune_refresh_history(db_session)
+
+    snapshot_count = await db_session.scalar(select(func.count(PageSnapshot.id)).where(PageSnapshot.page_id == page.id))
+    job_count = await db_session.scalar(select(func.count(RefreshJob.id)).where(RefreshJob.user_id == user.id))
+    assert snapshot_count == 2
+    assert job_count == 0

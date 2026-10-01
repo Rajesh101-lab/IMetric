@@ -5,11 +5,11 @@ services:
     image: postgres:16-alpine
     restart: always
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: password
-      POSTGRES_DB: pagemetrics
+      POSTGRES_USER: ${POSTGRES_USER:-pagemetrics}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in the environment}
+      POSTGRES_DB: ${POSTGRES_DB:-pagemetrics}
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -24,18 +24,18 @@ services:
       dockerfile: Dockerfile
     restart: always
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     environment:
-      - ENV=development
-      - DATABASE_URL=postgresql+asyncpg://postgres:password@db:5432/pagemetrics
+      - ENV=${ENV:-development}
+      - DATABASE_URL=${DATABASE_URL:?Set DATABASE_URL for the Docker PostgreSQL service}
       - META_ACCESS_TOKEN=${META_ACCESS_TOKEN:-}
       - IG_BUSINESS_ACCOUNT_ID=${IG_BUSINESS_ACCOUNT_ID:-}
-      - CORS_ORIGINS=["http://localhost:5173","http://localhost:80","http://127.0.0.1:5173"]
+      - CORS_ORIGINS=${CORS_ORIGINS:?Set CORS_ORIGINS as a JSON array}
       - REEL_SAMPLE_SIZE=12
       - SESSION_IDLE_MINUTES=30
       - SESSION_ABSOLUTE_HOURS=12
       - INITIAL_USER=${INITIAL_USER:-agency_admin}
-      - INITIAL_PASSWORD=${INITIAL_PASSWORD:-SecureAgency123!}
+      - INITIAL_PASSWORD=${INITIAL_PASSWORD:?Set INITIAL_PASSWORD in the environment}
     depends_on:
       db:
         condition: service_healthy
@@ -46,7 +46,7 @@ services:
       dockerfile: Dockerfile
     restart: always
     ports:
-      - "80:80"
+      - "127.0.0.1:80:80"
     depends_on:
       backend:
         condition: service_healthy

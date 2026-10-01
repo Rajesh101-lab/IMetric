@@ -1,7 +1,7 @@
 from datetime import datetime
-from typing import Optional
+from typing import List, Optional
 from uuid import UUID
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class AddPageRequest(BaseModel):
@@ -10,9 +10,31 @@ class AddPageRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+class PageTagsRequest(BaseModel):
+    tags: List[str] = Field(default_factory=list, max_length=12)
+
+    @field_validator("tags")
+    @classmethod
+    def normalize_tags(cls, tags: List[str]) -> List[str]:
+        normalized = []
+        seen = set()
+        for raw_tag in tags:
+            tag = raw_tag.strip()
+            if not tag or len(tag) > 32:
+                raise ValueError("Tags must contain between 1 and 32 characters.")
+            key = tag.casefold()
+            if key not in seen:
+                normalized.append(tag)
+                seen.add(key)
+        return normalized
+
+    model_config = ConfigDict(extra="forbid")
+
+
 class PageResponse(BaseModel):
     id: UUID
     username: str
+    tags: List[str] = Field(default_factory=list)
     status: str = "ready"
     source: str = "official"  # "official" or "backup"
     fallback_reason: Optional[str] = None
@@ -33,6 +55,21 @@ class PageResponse(BaseModel):
     updated_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class PageSummary(BaseModel):
+    total_pages: int
+    total_followers: int
+    avg_views_per_follower: float
+
+
+class PageListResponse(BaseModel):
+    items: List[PageResponse]
+    total: int
+    page: int
+    page_size: int
+    total_pages: int
+    summary: PageSummary
 
 
 class RefreshAllJobResponse(BaseModel):

@@ -90,22 +90,99 @@ class SerpApiProvider:
         for attempt in range(len(delays) + 1):
             try:
                 raw_data = await self._fetch_pages(clean_user, key, n_reels)
-                if raw_data.followers == 0 and len(raw_data.reels) == 0:
-                    return self._mock_fallback(clean_user)
-
                 self._record_success()
                 return raw_data
             except IGError as e:
-                if e.kind in (Kind.AUTH, Kind.TRANSIENT):
-                    logger.warning(f"SerpApi provider issue ({e.kind}). Falling back to mock metrics.")
-                    return self._mock_fallback(clean_user)
-
                 if e.retryable and attempt < len(delays):
                     await asyncio.sleep(delays[attempt] + random.random() * 0.3)
                     continue
                 if e.kind in (Kind.TRANSIENT, Kind.RATE_LIMIT):
                     self._record_failure()
                 raise
+
+    @staticmethod
+    def _as_int(value: Any, default: int = 0) -> int:
+        if value is None or value is False:
+            return default
+        if isinstance(value, dict):
+            value = value.get("count", value.get("value"))
+        if isinstance(value, str):
+            value = value.replace(",", "").strip()
+            if not value:
+                return default
+        try:
+            return int(float(value))
+        except (TypeError, ValueError):
+            return default
+
+    @staticmethod
+    def _first_present(*values: Any) -> Any:
+        for value in values:
+            if value is not None and value != "":
+                return value
+        return None
+
+    def _extract_profile(self, body: Dict[str, Any]) -> Dict[str, Any]:
+        profile = (
+            body.get("profile_results")
+            or body.get("user_profile")
+            or body.get("profile")
+            or {}
+        )
+        return profile if isinstance(profile, dict) else {}
+
+    def _extract_posts(self, body: Dict[str, Any], profile: Dict[str, Any]) -> List[Dict[str, Any]]:
+        posts = self._first_present(
+            profile.get("posts"),
+            profile.get("reels"),
+            body.get("posts"),
+            body.get("reels"),
+            body.get("posts_data"),
+            [],
+        )
+        if isinstance(posts, dict):
+            posts = posts.get("data") or posts.get("items") or []
+        return posts if isinstance(posts, list) else []
+
+    def _normalize_post(self, post: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        likes = self._as_int(
+            self._first_present(
+                post.get("liked_by_count"),
+                post.get("like_count"),
+                post.get("likes_count"),
+                post.get("likes"),
+                (post.get("edge_liked_by") or {}).get("count") if isinstance(post.get("edge_liked_by"), dict) else None,
+            )
+        )
+        views = self._first_present(
+            post.get("video_view_count"),
+            post.get("play_count"),
+            post.get("view_count"),
+            post.get("views"),
+            post.get("ig_play_count"),
+        )
+        product_type = str(post.get("product_type") or post.get("media_product_type") or post.get("type") or "").lower()
+        is_video = (
+            post.get("is_video") is True
+            or views is not None
+            or product_type in ("video", "reel", "reels", "clips", "igtv")
+        )
+        if not is_video or views is None:
+            return None
+        timestamp = self._first_present(
+            post.get("posted_at"),
+            post.get("timestamp"),
+            post.get("taken_at"),
+            post.get("taken_at_timestamp"),
+            "2026-09-30T12:00:00Z",
+        )
+        if isinstance(timestamp, (int, float)):
+            timestamp = str(int(timestamp))
+        return {
+            "views": self._as_int(views),
+            "likes": likes,
+            "timestamp": timestamp,
+        }
 
     async def _fetch_pages(self, username: str, api_key: str, n_reels: int) -> RawPageData:
         followers = 0
@@ -192,8 +269,8 @@ class SerpApiProvider:
                     retryable=True
                 )
 
-            user_profile = body.get("user_profile", {}) or body.get("profile", {}) or {}
-            if user_profile.get("is_private") is True:
+            profile = self._extract_profile(body)
+            if profile.get("is_private") is True:
                 raise IGError(
                     kind=Kind.NOT_FOUND,
                     message=f"@{username} is private, so its metrics can't be read.",
@@ -201,22 +278,23 @@ class SerpApiProvider:
                     retryable=False
                 )
 
-            followers = user_profile.get("followers_count") or user_profile.get("followers") or followers
+            parsed_followers = self._first_present(
+                profile.get("followers"),
+                profile.get("followers_count"),
+                body.get("followers"),
+                body.get("followers_count"),
+            )
+            if parsed_followers is not None:
+                followers = self._as_int(parsed_followers, followers)
 
-            posts = body.get("posts", []) or body.get("reels", []) or body.get("posts_data", [])
-            for post in posts:
-                is_video = post.get("is_video") is True or post.get("video_view_count") is not None or post.get("type") in ("video", "reel")
-                if is_video:
-                    views = post.get("video_view_count") or post.get("play_count") or post.get("views")
-                    likes = post.get("likes_count") or post.get("like_count") or post.get("likes")
-                    timestamp = post.get("posted_at") or post.get("timestamp") or "2026-09-30T12:00:00Z"
-                    reels.append({
-                        "views": views,
-                        "likes": likes,
-                        "timestamp": timestamp
-                    })
+            for post in self._extract_posts(body, profile):
+                if not isinstance(post, dict):
+                    continue
+                normalized_post = self._normalize_post(post)
+                if normalized_post is not None:
+                    reels.append(normalized_post)
 
-            next_page_token = body.get("serpapi_pagination", {}).get("next_page_token")
+            next_page_token = (body.get("serpapi_pagination") or {}).get("next_page_token")
             if len(reels) >= n_reels or not next_page_token:
                 break
 

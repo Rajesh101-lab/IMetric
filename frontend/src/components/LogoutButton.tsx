@@ -23,7 +23,7 @@ export const LogoutButton: React.FC = () => {
       disabled={isLoggingOut}
       aria-label="Sign out"
       title="Sign out of agency account"
-      className="app-btn ghost !h-10 !px-4 text-xs font-semibold"
+      className="app-btn ghost workspace-logout-button text-xs font-semibold"
     >
       {isLoggingOut ? (
         <Loader2 className="w-4 h-4 animate-spin text-[var(--mut)]" />

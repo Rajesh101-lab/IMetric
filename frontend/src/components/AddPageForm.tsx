@@ -57,10 +57,10 @@ export const AddPageForm: React.FC = () => {
   };
 
   const isLoading = addPageMutation.isPending;
-  const recentPages = (pages || []).slice(0, 3);
+  const recentPages = (pages?.items || []).slice(0, 3);
 
   return (
-    <div className="space-y-6 pb-24">
+    <div className="space-y-6 pb-8">
       {/* Primary Hero Card */}
       <div className="app-card p-6 sm:p-8">
         <h2 className="text-2xl font-bold tracking-tight text-[var(--ink)] mb-4">
@@ -68,7 +68,7 @@ export const AddPageForm: React.FC = () => {
         </h2>
 
         <form onSubmit={handleSubmit}>
-          <div className="flex items-center gap-2 border border-[var(--line)] rounded-full h-16 px-3 sm:px-6 bg-[var(--bg)] focus-within:border-[var(--cof)] transition-colors">
+          <div className="flex items-center gap-2 border border-[var(--line)] rounded-md h-14 px-3 sm:px-5 bg-[var(--bg)] focus-within:border-[var(--cof)] transition-colors">
             <span className="text-[var(--mut)] text-xl font-medium select-none">
               @
             </span>
@@ -118,7 +118,7 @@ export const AddPageForm: React.FC = () => {
                 )}
               </div>
             ) : successMsg ? (
-              <p className="text-sm font-semibold text-emerald-600 dark:text-emerald-400">
+              <p className="text-sm font-semibold text-[var(--cof)]">
                 ✨ {successMsg}
               </p>
             ) : (
@@ -206,6 +206,7 @@ export const AddPageForm: React.FC = () => {
             ))
           )}
         </div>
+
       </div>
     </div>
   );

@@ -1,6 +1,7 @@
 import os
 import time
 import uuid
+import asyncio
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, status, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -11,10 +12,11 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from app.core.config import settings
 from app.core.logging import logger
 from app.db.session import AsyncSessionLocal, engine
-from app.db.models import Base
+from app.db.migrations import upgrade_database
 from app.services.auth import seed_initial_user_if_empty
 from app.services.pages import recover_stuck_pending_pages
-from app.api.v1 import auth, pages, health, config as config_api
+from app.services.refresh_jobs import prune_refresh_history, refresh_worker
+from app.api.v1 import auth, pages, health, config as config_api, campaigns
 
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
@@ -54,23 +56,29 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 async def lifespan(app: FastAPI):
     # Startup actions
     async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+        await conn.run_sync(upgrade_database)
 
     async with AsyncSessionLocal() as db:
         await seed_initial_user_if_empty(db)
+        await prune_refresh_history(db)
 
     # Recover stuck pending pages on startup
     await recover_stuck_pending_pages()
 
+    stop_worker = asyncio.Event()
+    worker_task = asyncio.create_task(refresh_worker(stop_worker))
+
     yield
     # Shutdown actions
+    stop_worker.set()
+    await worker_task
     await engine.dispose()
 
 
 is_prod = (settings.ENV == "production")
 
 app = FastAPI(
-    title="Page Metrics API",
+    title="IMetric API",
     version="1.0.0",
     docs_url=None if is_prod else "/docs",
     redoc_url=None if is_prod else "/redoc",
@@ -86,7 +94,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.CORS_ORIGINS,
     allow_credentials=True,
-    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["Content-Type", "X-CSRF-Token", "Authorization", "Cookie"],
 )
 
@@ -126,6 +134,7 @@ async def global_uncaught_exception_handler(request: Request, exc: Exception):
 app.include_router(health.router, prefix="/api/v1")
 app.include_router(auth.router, prefix="/api/v1")
 app.include_router(pages.router, prefix="/api/v1")
+app.include_router(campaigns.router, prefix="/api/v1")
 app.include_router(config_api.router, prefix="/api/v1")
 
 # Static files & Single Page Application (SPA) fallback from frontend/dist

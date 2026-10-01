@@ -15,4 +15,10 @@ async def get_app_config(
     Returns non-sensitive app configuration settings (e.g., whether backup source is enabled).
     Does NOT leak API keys or secret limits.
     """
-    return ConfigResponse(backup_enabled=settings.BACKUP_ENABLED)
+    official_api_configured = bool(
+        settings.META_ACCESS_TOKEN.strip() and settings.IG_BUSINESS_ACCOUNT_ID.strip()
+    )
+    return ConfigResponse(
+        backup_enabled=settings.BACKUP_ENABLED,
+        official_api_configured=official_api_configured,
+    )

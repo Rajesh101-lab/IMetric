@@ -14,7 +14,7 @@ export const ThemeToggle: React.FC = () => {
       title="Toggle dark mode"
     >
       {theme === "dark" ? (
-        <Sun className="w-5 h-5 text-amber-400" />
+        <Sun className="w-5 h-5 text-[var(--cof)]" />
       ) : (
         <Moon className="w-5 h-5 text-[var(--ink)]" />
       )}

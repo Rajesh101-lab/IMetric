@@ -1,11 +1,26 @@
 export interface User {
   id: string;
   username: string;
+  is_admin: boolean;
+}
+
+export interface RegistrationRequest {
+  id: string;
+  username: string;
+  contact_email: string;
+  status: "pending" | "approved" | "rejected";
+  created_at: string;
+}
+
+export interface RegistrationSubmission {
+  username: string;
+  status: "pending";
 }
 
 export interface PageItem {
   id: string;
   username: string;
+  tags: string[];
   status: 'pending' | 'ready' | 'failed';
   source: 'official' | 'backup';
   fallback_reason: string | null;
@@ -26,16 +41,48 @@ export interface PageItem {
   updated_at: string;
 }
 
+export interface PageSummary {
+  total_pages: number;
+  total_followers: number;
+  avg_views_per_follower: number;
+}
+
+export interface PaginatedPages {
+  items: PageItem[];
+  total: number;
+  page: number;
+  page_size: number;
+  total_pages: number;
+  summary: PageSummary;
+}
+
+export interface Campaign {
+  id: string;
+  name: string;
+  description: string | null;
+  page_ids: string[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CampaignInput {
+  id?: string;
+  name: string;
+  description: string;
+  page_ids: string[];
+}
+
 export interface RefreshAllJob {
   job_id: string;
   total: number;
   done: number;
   failed: number;
-  status: 'running' | 'completed' | 'failed';
+  status: 'queued' | 'running' | 'completed' | 'failed';
 }
 
 export interface AppConfig {
   backup_enabled: boolean;
+  official_api_configured: boolean;
 }
 
 export type SortField =

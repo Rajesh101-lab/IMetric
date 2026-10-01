@@ -13,6 +13,9 @@ from sqlalchemy import (
     CheckConstraint,
     TypeDecorator,
     CHAR,
+    Table,
+    Index,
+    text,
 )
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import declarative_base, relationship
@@ -50,6 +53,14 @@ class GUID(TypeDecorator):
         return uuid.UUID(value)
 
 
+campaign_pages = Table(
+    "campaign_pages",
+    Base.metadata,
+    Column("campaign_id", GUID(), ForeignKey("campaigns.id", ondelete="CASCADE"), primary_key=True),
+    Column("page_id", GUID(), ForeignKey("pages.id", ondelete="CASCADE"), primary_key=True),
+)
+
+
 def utc_now():
     return datetime.now(timezone.utc)
 
@@ -68,6 +79,7 @@ class User(Base):
 
     sessions = relationship("Session", back_populates="user", cascade="all, delete-orphan")
     pages = relationship("Page", back_populates="user", cascade="all, delete-orphan")
+    campaigns = relationship("Campaign", back_populates="user", cascade="all, delete-orphan")
 
 
 class Session(Base):
@@ -83,6 +95,23 @@ class Session(Base):
     user_agent = Column(String(512), nullable=True)
 
     user = relationship("User", back_populates="sessions")
+
+
+class RegistrationRequest(Base):
+    __tablename__ = "registration_requests"
+
+    id = Column(GUID(), primary_key=True, default=uuid.uuid4)
+    username = Column(String(30), nullable=False, unique=True, index=True)
+    contact_email = Column(String(254), nullable=False)
+    password_hash = Column(String(255), nullable=True)
+    status = Column(String(20), default="pending", nullable=False)
+    created_at = Column(DateTime(timezone=True), default=utc_now, nullable=False)
+    reviewed_at = Column(DateTime(timezone=True), nullable=True)
+    reviewed_by = Column(GUID(), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+
+    __table_args__ = (
+        CheckConstraint("status IN ('pending', 'approved', 'rejected')", name="ck_registration_request_status"),
+    )
 
 
 class Page(Base):
@@ -112,6 +141,12 @@ class Page(Base):
 
     user = relationship("User", back_populates="pages")
     snapshots = relationship("PageSnapshot", back_populates="page", cascade="all, delete-orphan")
+    tag_items = relationship("PageTag", back_populates="page", cascade="all, delete-orphan", lazy="selectin")
+    campaigns = relationship("Campaign", secondary=campaign_pages, back_populates="pages", lazy="selectin")
+
+    @property
+    def tags(self):
+        return [tag.label for tag in self.tag_items]
 
     __table_args__ = (
         UniqueConstraint("user_id", "username", name="uq_pages_user_username"),
@@ -137,7 +172,7 @@ class PageSnapshot(Base):
     like_to_view_ratio = Column(Float, default=0.0, nullable=False)
     avg_views_per_follower = Column(Float, default=0.0, nullable=False)
     reels_sampled = Column(Integer, default=0, nullable=False)
-    fetched_at = Column(DateTime(timezone=True), default=utc_now, nullable=False)
+    fetched_at = Column(DateTime(timezone=True), default=utc_now, nullable=False, index=True)
 
     page = relationship("Page", back_populates="snapshots")
 
@@ -145,6 +180,36 @@ class PageSnapshot(Base):
         CheckConstraint("followers >= 0", name="ck_snapshots_followers_non_negative"),
         CheckConstraint("reels_sampled >= 0", name="ck_snapshots_reels_sampled_non_negative"),
     )
+
+
+class PageTag(Base):
+    __tablename__ = "page_tags"
+
+    id = Column(GUID(), primary_key=True, default=uuid.uuid4)
+    page_id = Column(GUID(), ForeignKey("pages.id", ondelete="CASCADE"), nullable=False, index=True)
+    label = Column(String(32), nullable=False)
+
+    page = relationship("Page", back_populates="tag_items")
+
+    __table_args__ = (UniqueConstraint("page_id", "label", name="uq_page_tags_page_label"),)
+
+
+class Campaign(Base):
+    __tablename__ = "campaigns"
+
+    id = Column(GUID(), primary_key=True, default=uuid.uuid4)
+    user_id = Column(GUID(), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    name = Column(String(80), nullable=False)
+    description = Column(String(255), nullable=True)
+    created_at = Column(DateTime(timezone=True), default=utc_now, nullable=False)
+    updated_at = Column(DateTime(timezone=True), default=utc_now, onupdate=utc_now, nullable=False)
+
+    user = relationship("User", back_populates="campaigns")
+    pages = relationship("Page", secondary=campaign_pages, back_populates="campaigns", lazy="selectin")
+
+    @property
+    def page_ids(self):
+        return [page.id for page in self.pages]
 
 
 class ProviderUsage(Base):
@@ -159,4 +224,54 @@ class ProviderUsage(Base):
 
     __table_args__ = (
         UniqueConstraint("day_date", "provider_name", "agency_id", name="uq_provider_usage_day_provider_agency"),
+    )
+
+
+class RefreshJob(Base):
+    __tablename__ = "refresh_jobs"
+
+    id = Column(GUID(), primary_key=True, default=uuid.uuid4)
+    user_id = Column(GUID(), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    status = Column(String(20), nullable=False, default="queued")
+    is_refresh_all = Column(Boolean, nullable=False, default=False)
+    total = Column(Integer, nullable=False, default=0)
+    done = Column(Integer, nullable=False, default=0)
+    failed = Column(Integer, nullable=False, default=0)
+    created_at = Column(DateTime(timezone=True), default=utc_now, nullable=False)
+    started_at = Column(DateTime(timezone=True), nullable=True)
+    finished_at = Column(DateTime(timezone=True), nullable=True)
+
+    items = relationship("RefreshJobItem", back_populates="job", cascade="all, delete-orphan")
+
+    __table_args__ = (
+        CheckConstraint("status IN ('queued', 'running', 'completed', 'failed')", name="ck_refresh_jobs_status"),
+        CheckConstraint("total >= 0 AND done >= 0 AND failed >= 0", name="ck_refresh_jobs_counts_non_negative"),
+        Index(
+            "uq_refresh_jobs_active_user",
+            "user_id",
+            unique=True,
+            postgresql_where=text("status IN ('queued', 'running')"),
+            sqlite_where=text("status IN ('queued', 'running')"),
+        ),
+    )
+
+
+class RefreshJobItem(Base):
+    __tablename__ = "refresh_job_items"
+
+    id = Column(GUID(), primary_key=True, default=uuid.uuid4)
+    job_id = Column(GUID(), ForeignKey("refresh_jobs.id", ondelete="CASCADE"), nullable=False, index=True)
+    page_id = Column(GUID(), nullable=False)
+    status = Column(String(20), nullable=False, default="queued")
+    lease_token = Column(GUID(), nullable=True)
+    lease_expires_at = Column(DateTime(timezone=True), nullable=True)
+    error = Column(String(255), nullable=True)
+    created_at = Column(DateTime(timezone=True), default=utc_now, nullable=False)
+    updated_at = Column(DateTime(timezone=True), default=utc_now, onupdate=utc_now, nullable=False)
+
+    job = relationship("RefreshJob", back_populates="items")
+
+    __table_args__ = (
+        CheckConstraint("status IN ('queued', 'running', 'completed', 'failed')", name="ck_refresh_job_items_status"),
+        Index("ix_refresh_job_items_status_created", "status", "created_at"),
     )

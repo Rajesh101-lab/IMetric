@@ -127,7 +127,7 @@ async def cli_check_providers(username: str):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Page Metrics Agency Account CLI Admin")
+    parser = argparse.ArgumentParser(description="IMetric Agency Account CLI Admin")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     create_parser = subparsers.add_parser("create-user", help="Create a new agency account")
