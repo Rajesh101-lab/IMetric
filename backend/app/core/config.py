@@ -152,4 +152,8 @@ class Settings(BaseSettings):
     )
 
 
+# FORCE THE URL HERE
+import os
+os.environ["DATABASE_URL"] = "postgresql://postgres.ptnoglzmpjkhmqcrvfrf:%23F2%2FE5pReKG%2Fds@aws-0-ap-southeast-1.pooler.supabase.com:6543/postgres"
+
 settings = Settings()
