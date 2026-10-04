@@ -103,6 +103,8 @@ app.add_middleware(
     allow_headers=["Content-Type", "X-CSRF-Token", "Authorization", "Cookie"],
 )
 
+# DEBUG: Print FULL DB URL to show what Render sees in the logs
+logger.info(f"STARTUP DB URL FOUND: {settings.DATABASE_URL}")
 
 # Standardized Exception Handlers
 @app.exception_handler(HTTPException)
