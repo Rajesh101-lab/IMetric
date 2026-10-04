@@ -1,7 +1,7 @@
-import os
 from urllib.parse import urlsplit
 import re
-from typing import List
+import json
+from typing import List, Any
 from pydantic import model_validator
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -45,6 +45,21 @@ class Settings(BaseSettings):
         "http://127.0.0.1:8000",
         "http://localhost:3000",
     ]
+
+    @field_validator("CORS_ORIGINS", mode="before")
+    @classmethod
+    def parse_cors_origins(cls, value: Any) -> Any:
+        if isinstance(value, str):
+            # 1. Try JSON parsing
+            try:
+                # Replace single quotes with double to make it more JSON-friendly
+                json_value = value.replace("'", '"')
+                return json.loads(json_value)
+            except json.JSONDecodeError:
+                # 2. Fallback: Treat as comma-separated string
+                return [origin.strip() for origin in value.split(",")]
+        return value
+
     REEL_SAMPLE_SIZE: int = 12
     SESSION_IDLE_MINUTES: int = 30
     SESSION_ABSOLUTE_HOURS: int = 12

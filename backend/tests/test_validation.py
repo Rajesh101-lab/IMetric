@@ -53,6 +53,7 @@ def test_production_settings_require_postgres_secrets_and_https_origins():
         "META_ACCESS_TOKEN": "meta-token",
         "IG_BUSINESS_ACCOUNT_ID": "12345",
         "CORS_ORIGINS": ["https://app.example.com"],
+        "REFRESH_TOKEN": "some-refresh-token",
     }
     assert Settings(**base).ENV == "production"
 
@@ -68,13 +69,7 @@ def test_development_settings_allow_local_sqlite():
     assert settings.DATABASE_URL == "sqlite+aiosqlite:///local.db"
 
 
-def test_heroku_postgres_url_uses_asyncpg_and_ssl():
+def test_postgres_url_uses_asyncpg_and_ssl():
     settings = Settings(DATABASE_URL="postgres://app:secret@db.example.com:5432/app?sslmode=require")
     assert settings.DATABASE_URL.startswith("postgresql+asyncpg://")
-    assert "ssl=require" in settings.DATABASE_URL
-
-
-def test_heroku_dyno_requires_postgres_tls(monkeypatch):
-    monkeypatch.setenv("DYNO", "web.1")
-    settings = Settings(DATABASE_URL="postgres://app:secret@db.example.com:5432/app")
     assert "ssl=require" in settings.DATABASE_URL

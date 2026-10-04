@@ -65,13 +65,18 @@ async def lifespan(app: FastAPI):
     # Recover stuck pending pages on startup
     await recover_stuck_pending_pages()
 
-    stop_worker = asyncio.Event()
-    worker_task = asyncio.create_task(refresh_worker(stop_worker))
+    worker_task = None
+    if os.environ.get("RUN_WORKER", "true").lower() == "true":
+        stop_worker = asyncio.Event()
+        worker_task = asyncio.create_task(refresh_worker(stop_worker))
+    else:
+        stop_worker = None
 
     yield
     # Shutdown actions
-    stop_worker.set()
-    await worker_task
+    if worker_task:
+        stop_worker.set()
+        await worker_task
     await engine.dispose()
 
 
