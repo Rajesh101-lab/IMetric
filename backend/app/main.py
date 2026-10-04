@@ -119,6 +119,8 @@ async def custom_http_exception_handler(request: Request, exc: HTTPException):
         content={"error": err_body}
     )
 
+# DEBUG: Print masked DB URL to show what Render sees in the logs
+logger.info(f"STARTUP DB URL MASKED: {settings.DATABASE_URL[:30]}...")
 
 @app.exception_handler(Exception)
 async def global_uncaught_exception_handler(request: Request, exc: Exception):

@@ -38,7 +38,7 @@ class Settings(BaseSettings):
     CIRCUIT_BREAKER_RESET_SECONDS: float = 60.0
     NEGATIVE_CACHE_TTL_SECONDS: float = 300.0
 
-    CORS_ORIGINS: List[str] = [
+    CORS_ORIGINS: Any = [
         "http://localhost:5173",
         "http://127.0.0.1:5173",
         "http://localhost:8000",
