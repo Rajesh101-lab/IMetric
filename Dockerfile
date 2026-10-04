@@ -10,7 +10,8 @@ FROM python:3.12-slim-bookworm
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    PIP_NO_CACHE_DIR=1
+    PIP_NO_CACHE_DIR=1 \
+    DATABASE_URL="postgresql://postgres.ptnoglzmpjkhmqcrvfrf:%23F2%2FE5pReKG%2Fds@aws-0-ap-southeast-1.pooler.supabase.com:6543/postgres"
 
 WORKDIR /app
 
