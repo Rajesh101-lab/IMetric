@@ -26,7 +26,7 @@ Follow these steps to deploy your application.
 2. **Build Command:** `npm run build`
 3. **Output Directory:** `dist`
 4. **Environment Variable:**
-   - `VITE_API_BASE_URL=https://your-render-app-url.onrender.com`
+   - `VITE_API_BASE_URL=https://your-backend-domain` (public API URL, not a secret)
 
 ---
 ## Scaling for 1,000+ Users

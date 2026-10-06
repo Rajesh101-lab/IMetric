@@ -1,6 +1,7 @@
 import { PageItem, PaginatedPages, User, RefreshAllJob, AppConfig, SortField, SortOrder, Campaign, CampaignInput, RegistrationRequest, RegistrationSubmission } from "@/types";
 
-const BASE_URL = "/api/v1";
+const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/$/, "");
+const BASE_URL = `${API_BASE_URL}/api/v1`;
 
 let csrfTokenCache: string | null = null;
 let onUnauthorizedCallback: (() => void) | null = null;
