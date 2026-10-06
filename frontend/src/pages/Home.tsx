@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
+import { ThemeToggle } from "@/components/ThemeToggle";
 import "./home.css";
 
 const navItems = ["Features", "Pricing", "FAQ"];
@@ -141,7 +142,7 @@ export const Home: React.FC = () => {
         </nav>
 
         <div className="site-nav-actions">
-          <button type="button" className="site-toggle-btn">Theme</button>
+          <ThemeToggle />
           <Link to={accountHref} className="site-nav-cta">
             {accountLabel} <ArrowUpRight aria-hidden="true" />
           </Link>
