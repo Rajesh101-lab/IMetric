@@ -151,9 +151,10 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-
-# FORCE THE URL HERE
+# Use EXTERNAL_DB_URL to avoid platform overrides (like Render/Railway auto-injecting DATABASE_URL)
 import os
-os.environ["DATABASE_URL"] = "postgresql://postgres.ptnoglzmpjkhmqcrvfrf:%23F2%2FE5pReKG%2Fds@aws-0-ap-southeast-1.pooler.supabase.com:6543/postgres"
+actual_db_url = os.environ.get("EXTERNAL_DB_URL")
+if actual_db_url:
+    os.environ["DATABASE_URL"] = actual_db_url
 
 settings = Settings()
