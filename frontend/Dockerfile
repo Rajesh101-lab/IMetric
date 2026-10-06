@@ -14,6 +14,6 @@ COPY nginx.conf /etc/nginx/conf.d/default.conf
 EXPOSE $PORT
 
 HEALTHCHECK --interval=10s --timeout=5s --retries=3 \
-  CMD wget --quiet --tries=1 --spider http://localhost:$PORT/ || exit 1
+  CMD sh -c "wget --quiet --tries=1 --spider http://localhost:\$PORT/ || exit 1"
 
 CMD ["nginx", "-g", "daemon off;"]
