@@ -1,4 +1,5 @@
 from typing import Optional
+import re
 from urllib.parse import urlsplit
 from fastapi import Request, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -93,7 +94,18 @@ def verify_csrf(request: Request) -> None:
             if allowed_url.scheme and allowed_url.netloc:
                 configured_origins.add(f"{allowed_url.scheme}://{allowed_url.netloc}".lower())
 
-        if origin_base not in configured_origins and origin_base != request_origin:
+        is_vercel_preview = (
+            origin_url.scheme == "https"
+            and re.fullmatch(
+                r"i-metric-[a-z0-9-]+-im-etric\.vercel\.app",
+                origin_url.netloc.lower(),
+            ) is not None
+        )
+        if (
+            origin_base not in configured_origins
+            and origin_base != request_origin
+            and not is_vercel_preview
+        ):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail={"code": "CSRF_ORIGIN_FORBIDDEN", "message": "Untrusted request origin."}

@@ -188,6 +188,22 @@ async def test_csrf_rejects_foreign_origin(client: AsyncClient, db_session: Asyn
     assert resp.json()["error"]["code"] == "CSRF_ORIGIN_FORBIDDEN"
 
 
+async def test_csrf_accepts_app_vercel_preview_origin(client: AsyncClient, db_session: AsyncSession):
+    csrf_resp = await client.get("/api/v1/auth/csrf")
+    csrf_token = csrf_resp.json()["csrf_token"]
+
+    response = await client.post(
+        "/api/v1/auth/login",
+        json={"username": "missing-user", "password": "not-a-real-password"},
+        headers={
+            "X-CSRF-Token": csrf_token,
+            "Origin": "https://i-metric-ifry3aynw-im-etric.vercel.app",
+        },
+    )
+
+    assert response.status_code == 401
+
+
 @pytest.mark.asyncio
 async def test_lockout_after_five_failures(client: AsyncClient, db_session: AsyncSession):
     user = User(
