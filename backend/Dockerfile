@@ -6,12 +6,12 @@ ENV PYTHONUNBUFFERED=1 \
 WORKDIR /app
 
 # Install dependencies
-COPY requirements.txt .
+COPY backend/requirements.txt .
 RUN pip install --upgrade pip && \
     pip install -r requirements.txt
 
 # Copy application source code
-COPY . .
+COPY backend/ .
 
 # Create non-root user
 RUN useradd -m -u 1000 appuser && \
