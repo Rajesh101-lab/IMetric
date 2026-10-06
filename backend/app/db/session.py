@@ -23,6 +23,18 @@ if is_sqlite:
         cursor.execute("PRAGMA foreign_keys=ON")
         cursor.close()
 else:
+    # Parse URL to check if it's a pooler connection
+    from sqlalchemy.engine import make_url
+    db_url = make_url(settings.DATABASE_URL)
+    
+    connect_args = {}
+    # For Supabase pooler (pgbouncer), disable statement cache to avoid
+    # DuplicatePreparedStatementError - asyncpg needs statement_cache_size=0
+    # as a connect arg, not a query parameter
+    if "pooler" in (db_url.host or ""):
+        connect_args["statement_cache_size"] = 0
+        connect_args["prepared_statement_cache_size"] = 0
+    
     engine = create_async_engine(
         settings.DATABASE_URL,
         echo=False,
@@ -32,6 +44,7 @@ else:
         max_overflow=settings.DB_MAX_OVERFLOW,
         pool_timeout=settings.DB_POOL_TIMEOUT_SECONDS,
         pool_recycle=settings.DB_POOL_RECYCLE_SECONDS,
+        connect_args=connect_args,
     )
 
 AsyncSessionLocal = async_sessionmaker(

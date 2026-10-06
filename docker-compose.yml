@@ -1,23 +1,6 @@
 version: "3.9"
 
 services:
-  db:
-    image: postgres:16-alpine
-    restart: always
-    environment:
-      POSTGRES_USER: ${POSTGRES_USER:-pagemetrics}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in the environment}
-      POSTGRES_DB: ${POSTGRES_DB:-pagemetrics}
-    ports:
-      - "127.0.0.1:5432:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d pagemetrics"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-
   backend:
     build:
       context: ./backend
@@ -25,9 +8,11 @@ services:
     restart: always
     ports:
       - "127.0.0.1:8000:8000"
+    env_file:
+      - .env
     environment:
       - ENV=${ENV:-development}
-      - DATABASE_URL=${DATABASE_URL:?Set DATABASE_URL for the Docker PostgreSQL service}
+      - EXTERNAL_DB_URL=${EXTERNAL_DB_URL}
       - META_ACCESS_TOKEN=${META_ACCESS_TOKEN:-}
       - IG_BUSINESS_ACCOUNT_ID=${IG_BUSINESS_ACCOUNT_ID:-}
       - CORS_ORIGINS=${CORS_ORIGINS:?Set CORS_ORIGINS as a JSON array}
@@ -36,9 +21,7 @@ services:
       - SESSION_ABSOLUTE_HOURS=12
       - INITIAL_USER=${INITIAL_USER:-agency_admin}
       - INITIAL_PASSWORD=${INITIAL_PASSWORD:?Set INITIAL_PASSWORD in the environment}
-    depends_on:
-      db:
-        condition: service_healthy
+    # No longer depends on local db service
 
   web:
     build:
@@ -50,6 +33,3 @@ services:
     depends_on:
       backend:
         condition: service_healthy
-
-volumes:
-  postgres_data:

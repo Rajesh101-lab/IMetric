@@ -1,11 +1,16 @@
 from urllib.parse import urlsplit
 import re
 import json
+import os
 from typing import List, Any
 from pydantic import model_validator
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy.engine import make_url
+from dotenv import load_dotenv
+
+# Load .env from project root before settings are created
+load_dotenv(os.path.join(os.path.dirname(__file__), "../../../.env"))
 
 
 class Settings(BaseSettings):
@@ -77,7 +82,14 @@ class Settings(BaseSettings):
 
     @field_validator("DATABASE_URL", mode="before")
     @classmethod
-    def normalize_postgres_database_url(cls, value):
+    def normalize_database_url(cls, value):
+        """Override DATABASE_URL with EXTERNAL_DB_URL if set (only for default sqlite), then normalize for postgres/pooler"""
+        # Only use EXTERNAL_DB_URL if value is the default sqlite URL (not explicitly provided)
+        if isinstance(value, str) and value == "sqlite+aiosqlite:///pagemetrics.db":
+            external_url = os.environ.get("EXTERNAL_DB_URL")
+            if external_url:
+                value = external_url
+        
         if not isinstance(value, str):
             return value
 
@@ -93,12 +105,12 @@ class Settings(BaseSettings):
         if sslmode is not None:
             query.setdefault("ssl", sslmode)
         query.pop("channel_binding", None)
-        if "-pooler." in (url.host or ""):
+        if "pooler" in (url.host or ""):
             query["prepared_statement_cache_size"] = "0"
 
         if query != dict(url.query):
             url = url.set(query=query)
-        return str(url)
+        return url.render_as_string(hide_password=False)
 
     @model_validator(mode="after")
     def validate_production_settings(self):
@@ -146,15 +158,9 @@ class Settings(BaseSettings):
     ARGON2_PARALLELISM: int = 1
 
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file="../../../.env",
         env_file_encoding="utf-8",
         extra="ignore",
     )
-
-# Use EXTERNAL_DB_URL to avoid platform overrides (like Render/Railway auto-injecting DATABASE_URL)
-import os
-actual_db_url = os.environ.get("EXTERNAL_DB_URL")
-if actual_db_url:
-    os.environ["DATABASE_URL"] = actual_db_url
 
 settings = Settings()
